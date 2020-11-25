@@ -21,6 +21,6 @@ Example
 ## Badges
 [![Release](https://img.shields.io/github/release/shebang-go/command.svg?style=for-the-badge)](https://github.com/shebang-go/command/releases/latest)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=for-the-badge)](/LICENSE.md)
-[![Build status](https://img.shields.io/github/workflow/status/shebang-go/command/build?style=for-the-badge)](https://github.com/shebang-go/command/actions?workflow=build)
+[![Build status](https://img.shields.io/github/workflow/status/shebang-go/command/CI?style=for-the-badge)](https://github.com/shebang-go/command/actions?workflow=CI)
 [![Codecov](https://img.shields.io/codecov/c/github/shebang-go/command/master.svg?style=for-the-badge)](https://codecov.io/gh/shebang-go/command)
 
