@@ -2,6 +2,10 @@ name: CI
 
 on:
   push:
+    paths:
+      - '**'
+      - '!.github/workflows/**'
+      - '.github/workflows/CI.yml'
     branches: [ master ]
   pull_request:
     branches: [ master ]
@@ -32,8 +36,11 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Test
-      run: go test -v ./...
+    - name: Unit Test
+      run: go test -v -count=10 -race -timeout 5s -coverprofile=coverage.out -tags unit,example ./...
+
+    - name: Integration Test
+      run: go test -v -count=10 -race -timeout 10s -coverprofile=coverage-integration.out -tags integration ./...
 
     - name: Generate coverage report
       run: |
