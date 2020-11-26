@@ -1,3 +1,6 @@
+// +build !integration
+// +build example
+
 package command_test
 
 import (
@@ -13,9 +16,7 @@ func ExampleCommand_Wait() {
 
 	events, _ := cmd.Execute()
 	event := <-events
-	if event != nil {
-		fmt.Println(event.Data().Stdout()[0])
-	}
+	fmt.Println(event.Data().Stdout()[0])
 
 	// Wait returns an exit code and error information. Once read from the
 	// channel, resources are freed.
@@ -32,9 +33,7 @@ func ExampleNewCommandStream() {
 
 	events, _ := cmd.Execute()
 	for event := range events {
-		if event != nil {
-			fmt.Println(event.Data().Out()[0])
-		}
+		fmt.Println(event.Data().Out()[0])
 	}
 
 	<-cmd.Wait()
@@ -48,9 +47,7 @@ func ExampleNewCommandStream_exitCode() {
 
 	events, _ := cmd.Execute()
 	for event := range events {
-		if event != nil {
-			fmt.Println(event.Data().Out()[0])
-		}
+		fmt.Println(event.Data().Out()[0])
 	}
 
 	// optionally: read exit code

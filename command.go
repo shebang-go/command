@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"sync"
 )
 
-// CommandData defines an interface for reading stdout and sterr.
-type CommandData interface {
+// Data defines an interface for reading stdout and sterr.
+type Data interface {
 
 	// Stdout returns stdout data
 	Stdout() []string
@@ -22,8 +23,8 @@ type CommandData interface {
 	Out() []string
 }
 
-// CommandState defines an interface to read the final command state.
-type CommandState interface {
+// State defines an interface to read the final command state.
+type State interface {
 
 	// ExitCode returns the process exit code. It returns -1 if the process has
 	// been killed by a signal (see exec.Wait)
@@ -98,17 +99,18 @@ func newCommandResult(stdout, stderr []string) *commandResult {
 	return r
 }
 
-type CommandEvent interface {
+// Event defines an interface for reading command execution events
+type Event interface {
 	Error() error
-	Data() CommandData
+	Data() Data
 }
 
 type commandEvent struct {
-	data CommandData
+	data Data
 	err  error
 }
 
-func newCommandEvent(data CommandData, err error) *commandEvent {
+func newCommandEvent(data Data, err error) *commandEvent {
 	c := &commandEvent{data: data, err: err}
 	return c
 }
@@ -116,13 +118,14 @@ func newCommandEvent(data CommandData, err error) *commandEvent {
 func (evt *commandEvent) Error() error {
 	return evt.err
 }
-func (evt *commandEvent) Data() CommandData {
+func (evt *commandEvent) Data() Data {
 	return evt.data
 }
 
-// commandOption type sets an internal option (possibly obsolote)
-type commandOption func(*Command) error
+// Option type sets an internal option (possibly obsolote)
+type Option func(*Command) error
 
+// commandService defines an interface for command execution.
 type commandService interface {
 	StdoutPipe() (io.ReadCloser, error)
 	StderrPipe() (io.ReadCloser, error)
@@ -130,32 +133,17 @@ type commandService interface {
 	Start() error
 }
 
-type defCommandService struct {
-	cmd commandService
-}
-
-func (s *defCommandService) StdoutPipe() (io.ReadCloser, error) {
-	return s.cmd.StdoutPipe()
-}
-
-func (s *defCommandService) StderrPipe() (io.ReadCloser, error) {
-	return s.cmd.StderrPipe()
-}
-
-func (s *defCommandService) Wait() error {
-	return s.cmd.Wait()
-}
-
-func (s *defCommandService) Start() error {
-	return s.cmd.Start()
-}
-
+// processState is an interface for getting the process exit code of a process.
 type processState interface {
 	ExitCode() int
 }
 
 type processStateService struct {
 	cmd commandService
+}
+
+func newProcessState(cmd commandService) processState {
+	return &processStateService{cmd: cmd}
 }
 
 func (p *processStateService) ExitCode() int {
@@ -170,12 +158,12 @@ func (p *processStateService) ExitCode() int {
 type Command struct {
 	name         string
 	args         []string
-	outEvents    <-chan CommandEvent
+	outEvents    <-chan Event
 	processState processState
 	cmd          commandService
 	readDone     chan struct{}
 	stream       bool
-	finalState   chan CommandState
+	finalState   chan State
 	ctx          context.Context // nil means none
 }
 
@@ -183,19 +171,24 @@ type Command struct {
 // object. The arguments are basically the same as of exec.CommandContext.
 // Options can be set using the WithOption(t T) paradigma.
 func NewCommand(ctx context.Context, name string, args ...interface{}) (*Command, error) {
+
+	if len(name) == 0 {
+		return nil, fmt.Errorf("name cannot be empty")
+	}
+
 	cmd := &Command{
 		name:       name,
 		ctx:        ctx,
-		finalState: make(chan CommandState),
+		finalState: make(chan State),
 		readDone:   make(chan struct{}),
 
 		args: make([]string, 0),
 	}
-	userOpts := make([]commandOption, 0)
+	userOpts := make([]Option, 0)
 	var err error
 	for _, arg := range args {
 		switch v := arg.(type) {
-		case commandOption:
+		case Option:
 			userOpts = append(userOpts, v)
 		case string:
 			cmd.args = append(cmd.args, v)
@@ -207,11 +200,10 @@ func NewCommand(ctx context.Context, name string, args ...interface{}) (*Command
 			return nil, err
 		}
 	}
-
 	if cmd.cmd == nil {
 		cmd.cmd = exec.CommandContext(cmd.ctx, cmd.name, cmd.args...)
 	}
-	cmd.processState = &processStateService{cmd: cmd.cmd}
+	cmd.processState = newProcessState(cmd.cmd)
 	return cmd, nil
 }
 
@@ -222,7 +214,15 @@ func NewCommandStream(ctx context.Context, name string, args ...interface{}) (*C
 	return cmd, err
 }
 
-func withCommandService(v commandService) commandOption {
+// WithStreaming enables streaming of command output
+func WithStreaming() Option {
+
+	return func(c *Command) error {
+		c.stream = true
+		return nil
+	}
+}
+func withCommandService(v commandService) Option {
 
 	return func(c *Command) error {
 		c.cmd = v
@@ -260,7 +260,7 @@ func readStream(ctx context.Context, inStream io.Reader, errStream bool) <-chan 
 	return outStream
 }
 
-func (c *Command) wait() <-chan CommandState {
+func (c *Command) wait() <-chan State {
 	go func() {
 		<-c.readDone
 		err := c.cmd.Wait()
@@ -275,9 +275,9 @@ func (c *Command) wait() <-chan CommandState {
 	return c.finalState
 }
 
-func (c *Command) merge(ctx context.Context, channels ...<-chan streamData) <-chan CommandEvent {
+func (c *Command) merge(ctx context.Context, channels ...<-chan streamData) <-chan Event {
 	var wg sync.WaitGroup
-	mergedStream := make(chan CommandEvent)
+	mergedStream := make(chan Event)
 
 	multiplex := func(c <-chan streamData) {
 		defer wg.Done()
@@ -303,14 +303,15 @@ func (c *Command) merge(ctx context.Context, channels ...<-chan streamData) <-ch
 		wg.Wait()
 		close(c.readDone)
 		close(mergedStream)
-		// cmd.Wait() must be called after finished reading.
+
+		// cmd.Wait() must be called after finished reading. See also exec.Wait()
 		c.wait()
 	}()
 
 	return mergedStream
 }
 
-func (c *Command) start() (<-chan CommandEvent, error) {
+func (c *Command) start() (<-chan Event, error) {
 	stdoutPipe, err := c.cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -329,7 +330,7 @@ func (c *Command) start() (<-chan CommandEvent, error) {
 // Wait must be called after Execute to complete command execution and to
 // cleanup resources. It returns a channel which you are required to read from
 // to complete the process.
-func (c *Command) Wait() <-chan CommandState {
+func (c *Command) Wait() <-chan State {
 	return c.finalState
 }
 
@@ -338,20 +339,18 @@ func (c *Command) Wait() <-chan CommandState {
 // descripters are closed after channel closing.
 // If you need to get the final state of the command execution you can read from
 // <-command.FinalState.
-func (c *Command) Execute() (<-chan CommandEvent, error) {
+func (c *Command) Execute() (<-chan Event, error) {
 	var event *commandEvent
 	var stdout, stderr []string
-	outStream := make(chan CommandEvent)
-	var errOut error
-	var inStream <-chan CommandEvent
+	outStream := make(chan Event)
 
+	inStream, err := c.start()
+	if err != nil {
+		return nil, err
+	}
 	resultReader := func() {
 		stdout = []string{}
 		stderr = []string{}
-		inStream, errOut = c.start()
-		if errOut != nil {
-			return
-		}
 	ForLoop:
 		for v := range inStream {
 			if c.stream {
@@ -384,10 +383,8 @@ func (c *Command) Execute() (<-chan CommandEvent, error) {
 			case outStream <- event:
 			}
 		}
-		// c.wait()
 		close(outStream)
 	}
-	// var wg sync.WaitGroup
 
 	go resultReader()
 
