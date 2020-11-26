@@ -42,18 +42,18 @@ $(BIN)/golint: PACKAGE=golang.org/x/lint/golint
 
 .PHONY: test-coverage-html
 test-coverage-html: 	## Run tests and test coverage
-	$(GOTEST) -v -coverprofile=coverage.out ./...
+	$(GOTEST) -v -count=1 -race -timeout 5s -coverprofile=coverage.out -tags unit,example ./...
 	$(GOCOVER) -func=coverage.out
 	$(GOCOVER) -html=coverage.out
 
 .PHONY: test
 test: 	## Run unit tests
-	$(GOTEST) -v -coverprofile=coverage.out ./...
+	$(GOTEST) -v -count=1 -race -timeout 5s -coverprofile=coverage.out -tags unit,example ./...
 	$(GOCOVER) -func=coverage.out
 	
 .PHONY: test
 integration-test: ## Run integration tests
-	$(GOTEST) -v --tags=integration -coverprofile=coverage-integration.out ./...
+	$(GOTEST) -v -count=10 -race -timeout 10s -coverprofile=coverage-integration.out -tags integration ./...
 	
 .PHONY: lint
 lint: | $(GOLINT) ; $(info $(M) running golint…) @ ## Run golint
